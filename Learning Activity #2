@@ -1,0 +1,104 @@
+#read.table can handle a remote URL as well as a local file, be careful to only use trustworthy sites
+auto.mpg <- read.table('https://archive.ics.uci.edu/ml/machine-learning-databases/auto-mpg/auto-mpg.data',
+                       stringsAsFactors = FALSE)
+
+#change name of column titles 
+names(auto.mpg) <- c("mpg", "cylinders", "displacement", "horsepower", "weight", "acceleration",
+                     "model.year", "origin", "name")
+
+#setting seed using Mersenne-Twister generator
+set.seed(1, kind ="Mersenne-Twister")
+
+#indices for 50% training set & 50% testing data 
+training.indices <- sample(1:nrow(auto.mpg), 0.5 * nrow(auto.mpg), replace = FALSE)
+training.data <- auto.mpg[training.indices,] 
+testing.data <- auto.mpg[-training.indices,]
+
+
+#linear model for mpg=B0+B1*weight+error and test
+simple.model <- lm(mpg ~ weight, data = training.data);
+simple.test <- predict(simple.model, testing.data);
+
+# Gonna set up a dataframe for later
+estimates <- data.frame(name=character(), ssl=double(),
+                        train.mse=double(), train.rmse=double(),
+                        test.mse=double(), test.rmse=double(),
+                        stringsAsFactors = FALSE);
+
+# Adding new estimates 
+add_estimates <- function(model, test, name) {    
+  
+  # Get the MSE and RMSE
+  training.mse <- mean(residuals(model)^2)
+  training.rmse <- sqrt(training.mse)
+  
+  # Get the SSL
+  ssl <- sum((testing.data$mpg - test)^2)
+  
+  # Get the MSE and RMSE & append
+  testing.mse <- ssl/nrow(testing.data)
+  testing.rmse <- sqrt(testing.mse)
+  
+  estimates[nrow(estimates)+1, ] <- list(name,ssl,training.mse, training.rmse,testing.mse, testing.rmse);
+  return(estimates)
+}
+
+# Add estimates
+estimates <- add_estimates(simple.model, simple.test, "Weight")
+
+
+# Training model summary and plot 
+ggpr <- function (fit, df, meth) {
+  require(ggplot2);
+  summ = summary(fit);
+  print(summ);
+  xn = names(fit$model)[2];
+  yn = names(fit$model)[1];
+  ggplot(subset(x = df, select = c(yn,xn)), aes_string(x = df[[xn]], y = df[[yn]])) +
+    geom_point() +
+    stat_smooth(method = meth, col = "red") +
+    labs(title = paste(
+      yn,"~",
+      signif(fit$coef[[2]], 5),"*",xn,
+      ifelse(fit$coef[[1]] >= 0,"+","-"),
+      abs(signif(fit$coef[[1]], 5)),
+      "  P =",signif(summ$coef[2,4], 5),
+      "  Adj.R^2 =",signif(summ$adj.r.squared, 5)
+    ),
+    x=xn,y=yn
+    )
+}
+
+# Linear version here
+ggpr_linear <- function (fit, df) {
+  ggpr(fit,df,"lm");
+}
+# Smooth version here
+ggpr_smooth <- function (fit, df) {
+  ggpr(fit,df,"loess")
+}
+
+ggpr_linear(simple.model,auto.mpg)
+
+# multiple linear regression model and summary
+multi.model <- lm(mpg ~ cylinders + displacement + weight + acceleration + model.year, data = training.data)
+print(summary(multi.model))
+
+# Plot&summarize for model.year 
+simple2.model <- lm(mpg ~ model.year, data = training.data)
+simple2.testing <- predict(simple2.model, testing.data)
+estimates <- add_estimates(simple2.model, simple2.testing, "Year")
+ggpr_linear(simple2.model,auto.mpg)
+
+# Add the estimates for the multi model 
+multi.testing <- predict(multi.model, testing.data)
+estimates <- add_estimates(multi.model, multi.testing, "Multi")
+
+# model using weight and model.year
+final.model <- lm(mpg ~ weight + model.year, data = training.data)
+final.testing <- predict(final.model, testing.data)
+estimates <- add_estimates(final.model, final.testing, "Final")
+
+# summary &  final print 
+summary(final.model)
+print(estimates)
